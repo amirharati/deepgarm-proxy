@@ -8,6 +8,7 @@ const testButton = document.getElementById('testButton');
 // WebSocket and MediaRecorder instances
 let websocket = null;
 let mediaRecorder = null;
+const USE_LINEAR16 = true;
 
 // Helper function to update status
 function updateStatus(message) {
@@ -37,9 +38,8 @@ const log = {
 // WebSocket initialization
 function initializeWebSocket() {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    //const wsUrl = `${protocol}//${window.location.host}`;
-
-    const wsUrl = 'wss://16b8-66-23-60-198.ngrok-free.app';
+    const wsUrl = `${protocol}//${window.location.host}`;
+    
     log.debug(`Initializing WebSocket connection to ${wsUrl}`);
     
     try {
@@ -108,39 +108,63 @@ async function startRecording() {
         
         log.info('Microphone access granted');
 
-        // Send start signal to server
-        websocket.send(JSON.stringify({ type: 'start' }));
+        if (USE_LINEAR16) {
+            // Setup for linear16
+            const audioContext = new AudioContext({
+                sampleRate: 16000,
+            });
+            const source = audioContext.createMediaStreamSource(stream);
+            const processor = audioContext.createScriptProcessor(4096, 1, 1);
 
-        mediaRecorder = new MediaRecorder(stream, {
-            mimeType: 'audio/webm',
-            audioBitsPerSecond: 16000
-        });
+            source.connect(processor);
+            processor.connect(audioContext.destination);
 
-        mediaRecorder.ondataavailable = (event) => {
-            if (event.data.size > 0 && websocket?.readyState === WebSocket.OPEN) {
-                websocket.send(event.data);
-                log.debug(`Sent audio chunk: ${event.data.size} bytes`);
-            }
-        };
+            processor.onaudioprocess = (e) => {
+                if (websocket?.readyState === WebSocket.OPEN) {
+                    const inputData = e.inputBuffer.getChannelData(0);
+                    const pcmData = new Int16Array(inputData.length);
+                    for (let i = 0; i < inputData.length; i++) {
+                        pcmData[i] = Math.min(1, Math.max(-1, inputData[i])) * 0x7FFF;
+                    }
+                    websocket.send(pcmData.buffer);
+                    log.debug(`Sent PCM chunk: ${pcmData.length} samples`);
+                }
+            };
 
-        mediaRecorder.onstart = () => {
-            log.info('MediaRecorder started');
-            startButton.disabled = true;
-            stopButton.disabled = false;
-            updateStatus('Recording...');
-        };
+            // Store cleanup function
+            mediaRecorder = {
+                state: 'recording',
+                stop: () => {
+                    processor.disconnect();
+                    source.disconnect();
+                    stream.getTracks().forEach(track => track.stop());
+                    audioContext.close();
+                    mediaRecorder.state = 'inactive';
+                    log.info('Recording stopped');
+                    updateStatus('Recording stopped');
+                    startButton.disabled = false;
+                    stopButton.disabled = true;
+                }
+            };
+        } else {
+            mediaRecorder = new MediaRecorder(stream, {
+                mimeType: 'audio/webm',
+                audioBitsPerSecond: 16000
+            });
 
-        mediaRecorder.onstop = () => {
-            log.info('MediaRecorder stopped');
-            stream.getTracks().forEach(track => track.stop());
-            websocket.send(JSON.stringify({ type: 'stop' }));
-            startButton.disabled = false;
-            stopButton.disabled = true;
-            updateStatus('Recording stopped');
-        };
+            mediaRecorder.ondataavailable = (event) => {
+                if (event.data.size > 0 && websocket?.readyState === WebSocket.OPEN) {
+                    websocket.send(event.data);
+                    log.debug(`Sent audio chunk: ${event.data.size} bytes`);
+                }
+            };
 
-        // Start recording with small timeslices for real-time transcription
-        mediaRecorder.start(250);
+            mediaRecorder.start(250);
+        }
+
+        startButton.disabled = true;
+        stopButton.disabled = false;
+        updateStatus('Recording...');
         
     } catch (error) {
         log.error('Failed to start recording:', error);
@@ -151,6 +175,9 @@ async function startRecording() {
 function stopRecording() {
     if (mediaRecorder && mediaRecorder.state !== 'inactive') {
         mediaRecorder.stop();
+        if (websocket?.readyState === WebSocket.OPEN) {
+            websocket.send(JSON.stringify({ type: 'stop' }));
+        }
     }
 }
 
@@ -186,7 +213,7 @@ testButton?.addEventListener('click', async () => {
 
 // Cleanup
 window.addEventListener('beforeunload', () => {
-    if (mediaRecorder) {
+    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
         stopRecording();
     }
     if (websocket) {
