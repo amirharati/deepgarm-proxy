@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Deepgram Proxy Test Client</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <h1>Deepgram Proxy Test Client</h1>
+        <div class="controls">
+            <button id="startButton" disabled>Start Recording</button>
+            <button id="stopButton" disabled>Stop Recording</button>
+            <button id="testButton">Test Connection</button>
+        </div>
+        <div class="status">Status: <span id="statusText">Not Connected</span></div>
+        <div class="transcription">
+            <h2>Transcription:</h2>
+            <div id="transcriptionText"></div>
+        </div>
+    </div>
+    <script src="client.js"></script>
+</body>
+</html>

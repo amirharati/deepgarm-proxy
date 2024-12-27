@@ -1,0 +1,20 @@
+.container {
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 20px;
+}
+
+.controls {
+    margin: 20px 0;
+}
+
+.status {
+    margin: 10px 0;
+}
+
+.transcription {
+    margin-top: 20px;
+    padding: 10px;
+    border: 1px solid #ccc;
+    min-height: 100px;
+}

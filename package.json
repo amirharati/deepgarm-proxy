@@ -12,6 +12,7 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
+    "@deepgram/sdk": "^3.9.0",
     "config": "^3.3.12",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
@@ -20,5 +21,4 @@
   "devDependencies": {
     "nodemon": "^3.1.9"
   }
-
 }
