@@ -1,78 +1,104 @@
-// DOM elements references
-const startButton = document.getElementById('startButton');
-const stopButton = document.getElementById('stopButton');
-const statusText = document.getElementById('statusText');
-const transcriptionText = document.getElementById('transcriptionText');
-const testButton = document.getElementById('testButton');
+// DOM elements references (unchanged)
 
 // WebSocket and MediaRecorder instances
 let websocket = null;
 let mediaRecorder = null;
 const USE_LINEAR16 = true;
 
+// Configuration state
+let currentEndpoint = null;
+
+// Enhanced logging utility
+const log = {
+    info: (phase, message, data) => {
+        const logMessage = `[Phase:${phase}] ${message}`;
+        console.log(logMessage, data || '');
+        updateStatus(message);
+    },
+    error: (phase, message, error) => {
+        const logMessage = `[Phase:${phase}] Error: ${message}`;
+        console.error(logMessage, error);
+        updateStatus(`Error: ${message}`);
+    },
+    debug: (phase, message, data) => {
+        const logMessage = `[Phase:${phase}] ${message}`;
+        console.debug(logMessage, data || '');
+    }
+};
+
 // Helper function to update status
 function updateStatus(message) {
     if (statusText) {
         statusText.textContent = message;
-        console.log('Status updated:', message);
-    } else {
-        console.error('Status element not found');
     }
 }
 
-// Logging utility
-const log = {
-    info: (message, data) => {
-        console.log(`[INFO] ${message}`, data || '');
-        updateStatus(message);
-    },
-    error: (message, error) => {
-        console.error(`[ERROR] ${message}`, error);
-        updateStatus(`Error: ${message}`);
-    },
-    debug: (message, data) => {
-        console.debug(`[DEBUG] ${message}`, data || '');
+function getWebSocketUrl() {
+    log.debug('Setup', 'Getting WebSocket URL');
+    switch (connectionType.value) {
+        case 'local':
+            return 'ws://localhost:3000';  // WebSocket server port
+        case 'custom':
+            return currentEndpoint || wsEndpoint.value;
+        default:
+            return 'ws://localhost:3000';
     }
-};
+}
 
-// WebSocket initialization
 function initializeWebSocket() {
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}`;
+    if (websocket) {
+        log.info('Cleanup', 'Closing existing WebSocket connection');
+        websocket.close();
+        websocket = null;
+    }
     
-    log.debug(`Initializing WebSocket connection to ${wsUrl}`);
+    const wsUrl = getWebSocketUrl();
+    log.debug('Init', 'Initializing WebSocket connection to', wsUrl);
     
     try {
+        log.info('Connection', 'Attempting WebSocket connection');
         const ws = new WebSocket(wsUrl);
-        log.debug('WebSocket instance created');
-
+        
         ws.onopen = () => {
-            log.info('WebSocket connection opened successfully');
+            log.info('Connection', 'WebSocket connection opened');
             startButton.disabled = false;
-            updateStatus('Connected to server');
+            stopButton.disabled = true;
+            updateStatus('Connected');
+            
+            // Send a ping every 30 seconds to keep the connection alive
+            setInterval(() => {
+                if (ws.readyState === WebSocket.OPEN) {
+                    log.debug('Heartbeat', 'Sending ping');
+                    ws.send('ping');
+                }
+            }, 30000);
         };
 
-        ws.onclose = (event) => {
-            log.info(`WebSocket closed. Code: ${event.code}, Reason: ${event.reason}`);
+        ws.onclose = () => {
+            log.info('Connection', 'WebSocket connection closed');
             startButton.disabled = true;
             stopButton.disabled = true;
-            updateStatus('Disconnected from server');
+            updateStatus('Disconnected');
+            // Try to reconnect for local server
+            if (connectionType.value === 'local') {
+                setTimeout(initializeWebSocket, 2000);
+            }
         };
 
         ws.onerror = (error) => {
-            log.error('WebSocket error:', error);
+            log.error('Connection', 'WebSocket error occurred', error);
+            startButton.disabled = true;
+            stopButton.disabled = true;
             updateStatus('Connection error');
         };
 
         ws.onmessage = (event) => {
+            log.debug('Message', 'Received message from server');
             try {
                 const result = JSON.parse(event.data);
-                log.debug('Received message:', result);
-                
                 if (result.type === 'Results') {
                     const transcript = result.channel?.alternatives?.[0]?.transcript;
-                    if (transcript && transcript.trim()) {
-                        log.info('Transcription:', transcript);
+                    if (transcript?.trim()) {
                         const p = document.createElement('p');
                         p.textContent = transcript;
                         transcriptionText.appendChild(p);
@@ -80,23 +106,20 @@ function initializeWebSocket() {
                     }
                 }
             } catch (error) {
-                log.error('Error parsing message:', error);
+                log.error('Message', 'Error parsing message:', error);
             }
         };
 
         return ws;
     } catch (error) {
-        log.error('Failed to create WebSocket:', error);
-        updateStatus('Failed to connect to server');
+        log.error('Init', 'Failed to create WebSocket:', error);
         return null;
     }
 }
 
-// Recording functions
 async function startRecording() {
-    log.info('Starting recording...');
-    
     try {
+        log.info('Recording', 'Requesting audio permissions');
         const stream = await navigator.mediaDevices.getUserMedia({
             audio: {
                 channelCount: 1,
@@ -106,16 +129,15 @@ async function startRecording() {
             }
         });
         
-        log.info('Microphone access granted');
-
+        log.info('Recording', 'Audio permissions granted');
+        
         if (USE_LINEAR16) {
-            // Setup for linear16
-            const audioContext = new AudioContext({
-                sampleRate: 16000,
-            });
+            log.debug('Audio', 'Setting up LINEAR16 audio processing');
+            const audioContext = new AudioContext({ sampleRate: 16000 });
             const source = audioContext.createMediaStreamSource(stream);
             const processor = audioContext.createScriptProcessor(4096, 1, 1);
 
+            log.debug('Audio', 'Connecting audio nodes');
             source.connect(processor);
             processor.connect(audioContext.destination);
 
@@ -126,40 +148,25 @@ async function startRecording() {
                     for (let i = 0; i < inputData.length; i++) {
                         pcmData[i] = Math.min(1, Math.max(-1, inputData[i])) * 0x7FFF;
                     }
+                    log.debug('Audio', `Sending audio chunk: ${pcmData.length} samples`);
                     websocket.send(pcmData.buffer);
-                    log.debug(`Sent PCM chunk: ${pcmData.length} samples`);
                 }
             };
 
-            // Store cleanup function
             mediaRecorder = {
                 state: 'recording',
                 stop: () => {
+                    log.info('Recording', 'Stopping audio processing');
                     processor.disconnect();
                     source.disconnect();
                     stream.getTracks().forEach(track => track.stop());
                     audioContext.close();
                     mediaRecorder.state = 'inactive';
-                    log.info('Recording stopped');
-                    updateStatus('Recording stopped');
                     startButton.disabled = false;
                     stopButton.disabled = true;
+                    updateStatus('Recording stopped');
                 }
             };
-        } else {
-            mediaRecorder = new MediaRecorder(stream, {
-                mimeType: 'audio/webm',
-                audioBitsPerSecond: 16000
-            });
-
-            mediaRecorder.ondataavailable = (event) => {
-                if (event.data.size > 0 && websocket?.readyState === WebSocket.OPEN) {
-                    websocket.send(event.data);
-                    log.debug(`Sent audio chunk: ${event.data.size} bytes`);
-                }
-            };
-
-            mediaRecorder.start(250);
         }
 
         startButton.disabled = true;
@@ -167,15 +174,17 @@ async function startRecording() {
         updateStatus('Recording...');
         
     } catch (error) {
-        log.error('Failed to start recording:', error);
-        updateStatus('Error: Could not start recording');
+        log.error('Recording', 'Failed to start recording:', error);
+        updateStatus('Could not start recording');
     }
 }
 
 function stopRecording() {
-    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+    log.info('Recording', 'Stop recording requested');
+    if (mediaRecorder?.state !== 'inactive') {
         mediaRecorder.stop();
         if (websocket?.readyState === WebSocket.OPEN) {
+            log.debug('Connection', 'Sending stop command to server');
             websocket.send(JSON.stringify({ type: 'stop' }));
         }
     }
@@ -183,37 +192,46 @@ function stopRecording() {
 
 // Event listeners
 document.addEventListener('DOMContentLoaded', () => {
-    log.debug('Page loaded, initializing...');
+    log.info('Setup', 'Initializing application');
     if (startButton && stopButton && statusText && transcriptionText) {
-        log.debug('All DOM elements found');
         websocket = initializeWebSocket();
-    } else {
-        log.error('Required DOM elements not found');
+    }
+});
+
+connectionType.addEventListener('change', () => {
+    log.info('Setup', 'Connection type changed');
+    customEndpoint.style.display = 
+        connectionType.value === 'custom' ? 'block' : 'none';
+    websocket = initializeWebSocket();
+});
+
+applyEndpoint.addEventListener('click', () => {
+    if (wsEndpoint.value) {
+        log.info('Setup', 'Applying custom endpoint');
+        currentEndpoint = wsEndpoint.value;
+        websocket = initializeWebSocket();
+        startButton.disabled = false; 
     }
 });
 
 startButton?.addEventListener('click', startRecording);
 stopButton?.addEventListener('click', stopRecording);
 testButton?.addEventListener('click', async () => {
-    log.info('Testing connection and permissions...');
-    
+    log.info('Test', 'Running connection test');
     if (websocket) {
-        log.info(`WebSocket state: ${websocket.readyState}`);
-    } else {
-        log.error('No WebSocket connection');
+        log.info('Test', `WebSocket state: ${websocket.readyState}`);
     }
-    
     try {
         const permission = await navigator.permissions.query({ name: 'microphone' });
-        log.info(`Microphone permission: ${permission.state}`);
+        log.info('Test', `Microphone permission: ${permission.state}`);
     } catch (error) {
-        log.error('Failed to query microphone permission:', error);
+        log.error('Test', 'Permission query failed:', error);
     }
 });
 
-// Cleanup
 window.addEventListener('beforeunload', () => {
-    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+    log.info('Cleanup', 'Page unloading, cleaning up connections');
+    if (mediaRecorder?.state !== 'inactive') {
         stopRecording();
     }
     if (websocket) {

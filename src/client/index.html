@@ -1,15 +1,44 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Deepgram Proxy Test Client</title>
+    <title>Deepgram ASR Client</title>
     <link rel="stylesheet" href="styles.css">
+    <style>
+        .config-panel {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+        .config-panel select, .config-panel input {
+            margin: 5px;
+            padding: 5px;
+            width: 300px;
+        }
+        .config-panel button {
+            margin: 5px;
+        }
+    </style>
 </head>
 <body>
     <div class="container">
-        <h1>Deepgram Proxy Test Client</h1>
+        <h1>Deepgram ASR Client</h1>
+        <div class="config-panel">
+            <h3>Connection Configuration</h3>
+            <div>
+                <select id="connectionType">
+                    <option value="local">Local Server (ws://localhost:3000)</option>
+                    <option value="cloud">Cloud Run Server</option>
+                </select>
+            </div>
+            <div id="customEndpoint" style="display: none;">
+                <input type="text" id="wsEndpoint" placeholder="Enter Cloud Run URL (wss://...)">
+                <button id="applyEndpoint">Apply</button>
+            </div>
+        </div>
         <div class="controls">
-            <button id="startButton" disabled>Start Recording</button>
-            <button id="stopButton" disabled>Stop Recording</button>
+            <button id="startButton" disabled="true">Start Recording</button>
+            <button id="stopButton" disabled="true">Stop Recording</button>
             <button id="testButton">Test Connection</button>
         </div>
         <div class="status">Status: <span id="statusText">Not Connected</span></div>

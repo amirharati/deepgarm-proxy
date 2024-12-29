@@ -1,0 +1,10 @@
+{
+  "hosting": {
+    "public": "src/client",
+    "ignore": [
+      "firebase-debug.log",
+      "**/.*",
+      "**/node_modules/**"
+    ]
+  }
+}
