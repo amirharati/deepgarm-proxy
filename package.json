@@ -17,7 +17,7 @@
     "config": "^3.3.12",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
-    "ws": "^8.18.0"
+    "ws": "^8.13.0"
   },
   "devDependencies": {
     "nodemon": "^3.1.9"

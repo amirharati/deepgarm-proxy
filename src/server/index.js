@@ -5,36 +5,76 @@ const WebSocket = require('ws');
 const config = require('config');
 const { setupWebSocketProxy } = require('./proxy');
 
-if (!process.env.DEEPGRAM_API_KEY) {
-    console.error('DEEPGRAM_API_KEY environment variable is required');
-    process.exit(1);
-}
+// Create express app
+const app = express();
 
-function setupServer() {
-    const app = express();
-    const server = http.createServer(app);
+// HTTP handlers first
+app.get('/', (req, res) => {
+    console.log('HTTP request received');
+    res.setHeader('Content-Type', 'text/plain');
+    res.status(200).send('Hello from Cloud Run!');
+});
+
+app.get('/health', (req, res) => {
+    console.log('Health check received');
+    res.status(200).send('OK');
+});
+
+// Create http server
+const server = http.createServer((req, res) => {
+    console.log('Raw HTTP request:', req.method, req.url);
+    app(req, res);
+});
+
+// Create WebSocket server
+const wss = new WebSocket.Server({ 
+    noServer: true,
+    clientTracking: true 
+});
+
+// Handle upgrade manually
+server.on('upgrade', (request, socket, head) => {
+    console.log('Upgrade request received');
     
-    // Basic health check endpoint for Cloud Run
-    app.get('/', (req, res) => {
-        res.status(200).send('WebSocket server is running');
+    // Add explicit error handling for upgrade
+    socket.on('error', (err) => {
+        console.error('Socket error during upgrade:', err);
     });
 
-    const wss = new WebSocket.Server({ server });
+    try {
+        wss.handleUpgrade(request, socket, head, (ws) => {
+            console.log('WebSocket connection established');
+            wss.emit('connection', ws, request);
+        });
+    } catch (err) {
+        console.error('Error during upgrade handling:', err);
+        socket.end();
+    }
+});
+
+// Setup proxy with error handling
+try {
     setupWebSocketProxy(wss, config);
-
-    // Get port from environment (for Cloud Run) or config
-    const PORT = process.env.PORT || config.get('server.port') || 8080;
-    
-    server.listen(PORT, () => {
-        console.log(`WebSocket server running on port ${PORT}`);
-    });
-
-    return server;
+    console.log('Proxy setup complete');
+} catch (err) {
+    console.error('Error setting up proxy:', err);
 }
 
-// Start server if running directly (not imported as module)
-if (require.main === module) {
-    setupServer();
-}
+// Start server with explicit error handling
+const port = process.env.PORT || 8080;
+server.listen(port, '0.0.0.0', () => {
+    console.log(`Server listening on port ${port}`);
+});
 
-module.exports = { setupServer };
+// Global error handlers
+server.on('error', (err) => {
+    console.error('Server error:', err);
+});
+
+process.on('uncaughtException', (err) => {
+    console.error('Uncaught exception:', err);
+});
+
+process.on('unhandledRejection', (err) => {
+    console.error('Unhandled rejection:', err);
+});

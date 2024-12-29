@@ -1,6 +1,6 @@
 {
     "server": {
-        "port": 3000,
+        "port": 8080,
         "deepgramUrl": "wss://api.deepgram.com/v1/listen",
         "deepgramParams": {
           "encoding": "linear16",

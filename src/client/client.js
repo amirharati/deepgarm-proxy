@@ -1,4 +1,13 @@
-// DOM elements references (unchanged)
+// DOM elements references
+const startButton = document.getElementById('startButton');
+const stopButton = document.getElementById('stopButton');
+const statusText = document.getElementById('statusText');
+const transcriptionText = document.getElementById('transcriptionText');
+const testButton = document.getElementById('testButton');
+const connectionType = document.getElementById('connectionType');
+const serverConfig = document.getElementById('serverConfig');
+const serverAddress = document.getElementById('serverAddress');
+const connectButton = document.getElementById('connectButton');
 
 // WebSocket and MediaRecorder instances
 let websocket = null;
@@ -37,11 +46,15 @@ function getWebSocketUrl() {
     log.debug('Setup', 'Getting WebSocket URL');
     switch (connectionType.value) {
         case 'local':
-            return 'ws://localhost:3000';  // WebSocket server port
-        case 'custom':
-            return currentEndpoint || wsEndpoint.value;
+            return 'ws://localhost:8080';
+        case 'cloud':
+            if (!currentEndpoint) {
+                log.error('Setup', 'No server endpoint configured');
+                return null;
+            }
+            return currentEndpoint;
         default:
-            return 'ws://localhost:3000';
+            return 'ws://localhost:8080';
     }
 }
 
@@ -53,6 +66,8 @@ function initializeWebSocket() {
     }
     
     const wsUrl = getWebSocketUrl();
+    if (!wsUrl) return null;
+    
     log.debug('Init', 'Initializing WebSocket connection to', wsUrl);
     
     try {
@@ -194,24 +209,36 @@ function stopRecording() {
 document.addEventListener('DOMContentLoaded', () => {
     log.info('Setup', 'Initializing application');
     if (startButton && stopButton && statusText && transcriptionText) {
+        serverConfig.style.display = 'none';  // Initially hide server config
         websocket = initializeWebSocket();
     }
 });
 
 connectionType.addEventListener('change', () => {
     log.info('Setup', 'Connection type changed');
-    customEndpoint.style.display = 
-        connectionType.value === 'custom' ? 'block' : 'none';
-    websocket = initializeWebSocket();
+    serverConfig.style.display = 
+        connectionType.value === 'cloud' ? 'flex' : 'none';
+    if (connectionType.value === 'local') {
+        websocket = initializeWebSocket();
+    }
 });
 
-applyEndpoint.addEventListener('click', () => {
-    if (wsEndpoint.value) {
-        log.info('Setup', 'Applying custom endpoint');
-        currentEndpoint = wsEndpoint.value;
-        websocket = initializeWebSocket();
-        startButton.disabled = false; 
+connectButton.addEventListener('click', () => {
+    const address = serverAddress.value.trim();
+    
+    if (!address) {
+        log.error('Setup', 'Please enter a server address');
+        return;
     }
+
+    // Remove protocol if user accidentally included it
+    const cleanAddress = address.replace(/^(ws|wss|http|https):\/\//, '');
+    currentEndpoint = connectionType.value === 'cloud' 
+        ? `wss://${cleanAddress}`
+        : `ws://${cleanAddress}`;
+    
+    log.info('Setup', `Connecting to ${currentEndpoint}`);
+    websocket = initializeWebSocket();
 });
 
 startButton?.addEventListener('click', startRecording);
