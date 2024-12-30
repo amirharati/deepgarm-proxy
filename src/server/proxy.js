@@ -17,7 +17,6 @@ function timestamp() {
  */
 function getDeepgramKey(externalConfig) {
     console.log(`[${timestamp()}] Checking for Deepgram API key...`);
-    console.log(`[${timestamp()}] External config:`, externalConfig);
     
     // Don't log actual API key in production
     console.log(`[${timestamp()}] Environment variable DEEPGRAM_API_KEY presence:`, 
@@ -45,13 +44,12 @@ const setupWebSocketProxy = (wss, externalConfig = {}) => {
     console.log(`[${timestamp()}] WebSocket server initialized`);
     
     // Track active connections for monitoring and cleanup
-    const activeConnections = new Map(); // Changed to Map to store connection state
+    const activeConnections = new Map();
 
     wss.on('connection', async (clientWs, req) => {
         const clientId = Math.random().toString(36).substring(7);
         console.log(`[${timestamp()}] New client connected - ID: ${clientId}, IP: ${req.socket.remoteAddress}`);
         
-        // Connection state object to manage the lifecycle
         const connectionState = {
             dgConnection: null,
             isAlive: true,
@@ -62,173 +60,6 @@ const setupWebSocketProxy = (wss, externalConfig = {}) => {
         console.log(`[${timestamp()}] Active connections: ${activeConnections.size}`);
 
         /**
-         * Initializes connection to Deepgram service
-         * Returns a promise that resolves when the connection is fully established
-         * @returns {Promise<Object>} Deepgram connection instance
-         */
-        async function initializeDeepgramConnection() {
-            if (connectionState.isClosing) {
-                console.log(`[${timestamp()}] [${clientId}] Connection is closing, skipping initialization`);
-                return null;
-            }
-
-            return new Promise((resolve, reject) => {
-                const timeoutId = setTimeout(() => {
-                    reject(new Error('Deepgram connection timeout'));
-                }, 10000); // 10 second timeout
-
-                try {
-                    console.log(`[${timestamp()}] [${clientId}] Creating Deepgram client...`);
-                    const deepgram = createClient(apiKey);
-
-                    console.log(`[${timestamp()}] [${clientId}] Using Deepgram parameters:`, externalConfig.server.deepgramParams);
-                    
-                    const dgConn = deepgram.listen.live(externalConfig.server.deepgramParams);
-
-                    // Setup event handlers
-                   // Add listener for each specific Deepgram event
-                    dgConn.on(LiveTranscriptionEvents.Open, (data) => {
-                        if (!connectionState.isClosing) {
-                            try {
-                                //console.log(`[${timestamp()}] [${clientId}] Forwarding Open event:`, JSON.stringify(data));
-                                sendToClient(data);
-
-                                clearTimeout(timeoutId);
-                                console.log(`[${timestamp()}] [${clientId}] Deepgram connection opened`);
-                                connectionState.dgConnection = dgConn;
-                                resolve(dgConn);
-                            } catch (error) {
-                                console.error(`[${timestamp()}] [${clientId}] Error forwarding Open event:`, error);
-                            }
-                        }
-                    });
-
-                    dgConn.on(LiveTranscriptionEvents.Close, (data) => {
-
-                        if (connectionState.dgConnection === dgConn) {
-                            connectionState.dgConnection = null;
-                        }
-                        if (!connectionState.isClosing) {
-                            try {
-                                console.log(`[${timestamp()}] [${clientId}] Forwarding Close event:`, JSON.stringify(data));
-                                sendToClient(data);
-                            } catch (error) {
-                                console.error(`[${timestamp()}] [${clientId}] Error forwarding Close event:`, error);
-                            }
-                        }
-                    });
-
-                    dgConn.on(LiveTranscriptionEvents.Error, (data) => {
-                        console.error(`[${timestamp()}] [${clientId}] Deepgram connection error:`, error);
-                        if (!connectionState.dgConnection) {
-                            clearTimeout(timeoutId);
-                            reject(error);
-                        }
-                        if (!connectionState.isClosing) {
-                            try {
-                                console.log(`[${timestamp()}] [${clientId}] Forwarding Error event:`, JSON.stringify(data));
-                                sendToClient(data);
-                            } catch (error) {
-                                console.error(`[${timestamp()}] [${clientId}] Error forwarding Error event:`, error);
-                            }
-                        }
-                    });
-
-                    dgConn.on(LiveTranscriptionEvents.Warning, (data) => {
-                        if (!connectionState.isClosing) {
-                            try {
-                                console.log(`[${timestamp()}] [${clientId}] Forwarding Warning event:`, JSON.stringify(data));
-                                sendToClient(data);
-                            } catch (error) {
-                                console.error(`[${timestamp()}] [${clientId}] Error forwarding Warning event:`, error);
-                            }
-                        }
-                    });
-
-                    dgConn.on(LiveTranscriptionEvents.Transcript, (data) => {
-                        if (!connectionState.isClosing) {
-                            try {
-                                console.log(`[${timestamp()}] [${clientId}] Forwarding Transcript event:`, JSON.stringify(data));
-                                sendToClient(data);
-                            } catch (error) {
-                                console.error(`[${timestamp()}] [${clientId}] Error forwarding Transcript event:`, error);
-                            }
-                        }
-                    });
-
-                    dgConn.on(LiveTranscriptionEvents.Metadata, (data) => {
-                        if (!connectionState.isClosing) {
-                            try {
-                                console.log(`[${timestamp()}] [${clientId}] Forwarding Metadata event:`, JSON.stringify(data));
-                                sendToClient(data);
-                            } catch (error) {
-                                console.error(`[${timestamp()}] [${clientId}] Error forwarding Metadata event:`, error);
-                            }
-                        }
-                    });
-
-                    dgConn.on(LiveTranscriptionEvents.SpeechStarted, (data) => {
-                        if (!connectionState.isClosing) {
-                            try {
-                                console.log(`[${timestamp()}] [${clientId}] Forwarding SpeechStarted event:`, JSON.stringify(data));
-                                sendToClient(data);
-                            } catch (error) {
-                                console.error(`[${timestamp()}] [${clientId}] Error forwarding SpeechStarted event:`, error);
-                            }
-                        }
-                    });
-
-                    dgConn.on(LiveTranscriptionEvents.SpeechFinished, (data) => {
-                        if (!connectionState.isClosing) {
-                            try {
-                                console.log(`[${timestamp()}] [${clientId}] Forwarding SpeechFinished event:`, JSON.stringify(data));
-                                sendToClient(data);
-                            } catch (error) {
-                                console.error(`[${timestamp()}] [${clientId}] Error forwarding SpeechFinished event:`, error);
-                            }
-                        }
-                    });
-
-                    dgConn.on(LiveTranscriptionEvents.UtteranceEnd, (data) => {
-                        if (!connectionState.isClosing) {
-                            try {
-                                console.log(`[${timestamp()}] [${clientId}] Forwarding UtteranceEnd event:`, JSON.stringify(data));
-                                sendToClient(data);
-                            } catch (error) {
-                                console.error(`[${timestamp()}] [${clientId}] Error forwarding UtteranceEnd event:`, error);
-                            }
-                        }
-                    });
-                    
-                    dgConn.on(LiveTranscriptionEvents.Unhandled, (data) => {
-                        if (!connectionState.isClosing) {
-                            try {
-                                console.log(`[${timestamp()}] [${clientId}] Forwarding Unhandled event:`, JSON.stringify(data));
-                                sendToClient(data);
-                            } catch (error) {
-                                console.error(`[${timestamp()}] [${clientId}] Error forwarding Unhandled event:`, error);
-                            }
-                        }
-                    });
-
-dgConn.on(LiveTranscriptionEvents.SpeechFinished, (data) => {
-    if (!connectionState.isClosing) {
-        try {
-            console.log(`[${timestamp()}] [${clientId}] Forwarding SpeechFinished event:`, JSON.stringify(data));
-            sendToClient(data);
-        } catch (error) {
-            console.error(`[${timestamp()}] [${clientId}] Error forwarding SpeechFinished event:`, error);
-        }
-    }
-});
-                } catch (error) {
-                    clearTimeout(timeoutId);
-                    reject(error);
-                }
-            });
-        }
-
-        /**
          * Sends data to the connected client
          * @param {Object} data - Data to send to client
          */
@@ -236,7 +67,6 @@ dgConn.on(LiveTranscriptionEvents.SpeechFinished, (data) => {
             if (clientWs.readyState === WebSocket.OPEN && !connectionState.isClosing) {
                 try {
                     clientWs.send(JSON.stringify(data));
-                    console.log(`[${timestamp()}] [${clientId}] Sent message to client`);
                 } catch (error) {
                     console.error(`[${timestamp()}] [${clientId}] Error sending to client:`, error);
                 }
@@ -249,12 +79,10 @@ dgConn.on(LiveTranscriptionEvents.SpeechFinished, (data) => {
         function terminateConnection() {
             connectionState.isClosing = true;
             
-            // Clear ping interval
             if (pingInterval) {
                 clearInterval(pingInterval);
             }
             
-            // Cleanup Deepgram connection
             if (connectionState.dgConnection) {
                 try {
                     connectionState.dgConnection.finish();
@@ -264,10 +92,8 @@ dgConn.on(LiveTranscriptionEvents.SpeechFinished, (data) => {
                 connectionState.dgConnection = null;
             }
             
-            // Remove from active connections
             activeConnections.delete(clientId);
             
-            // Close WebSocket connection
             try {
                 if (clientWs.readyState === WebSocket.OPEN) {
                     clientWs.close();
@@ -277,6 +103,118 @@ dgConn.on(LiveTranscriptionEvents.SpeechFinished, (data) => {
             }
             
             console.log(`[${timestamp()}] [${clientId}] Connection terminated. Active connections: ${activeConnections.size}`);
+        }
+
+        /**
+         * Initializes connection to Deepgram service
+         * @returns {Promise<Object>} Deepgram connection instance
+         */
+        async function initializeDeepgramConnection() {
+            if (connectionState.isClosing) {
+                console.log(`[${timestamp()}] [${clientId}] Connection is closing, skipping initialization`);
+                return null;
+            }
+
+            return new Promise((resolve, reject) => {
+                const timeoutId = setTimeout(() => {
+                    reject(new Error('Deepgram connection timeout'));
+                }, 10000);
+
+                try {
+                    console.log(`[${timestamp()}] [${clientId}] Creating Deepgram client...`);
+                    const deepgram = createClient(apiKey);
+
+                    console.log(`[${timestamp()}] [${clientId}] Using Deepgram parameters:`, externalConfig.server.deepgramParams);
+                    const dgConn = deepgram.listen.live(externalConfig.server.deepgramParams);
+
+                    // Handle Open event - needs special handling for connection state
+                    dgConn.on(LiveTranscriptionEvents.Open, (data) => {
+                        try {
+                            // Handle connection state first
+                            clearTimeout(timeoutId);
+                            console.log(`[${timestamp()}] [${clientId}] Deepgram connection opened`);
+                            connectionState.dgConnection = dgConn;
+                            
+                            // Forward the event if not closing
+                            if (!connectionState.isClosing) {
+                                console.log(`[${timestamp()}] [${clientId}] Forwarding Open event:`, JSON.stringify(data));
+                                sendToClient(data);
+                            }
+                            
+                            resolve(dgConn);
+                        } catch (error) {
+                            console.error(`[${timestamp()}] [${clientId}] Error handling Open event:`, error);
+                            reject(error);
+                        }
+                    });
+
+                    // Handle Close event - needs special handling for connection cleanup
+                    dgConn.on(LiveTranscriptionEvents.Close, (data) => {
+                        try {
+                            // Forward the event if not closing
+                            if (!connectionState.isClosing) {
+                                console.log(`[${timestamp()}] [${clientId}] Forwarding Close event:`, JSON.stringify(data));
+                                sendToClient(data);
+                            }
+                            
+                            // Clean up connection state
+                            if (connectionState.dgConnection === dgConn) {
+                                console.log(`[${timestamp()}] [${clientId}] Clearing Deepgram connection reference`);
+                                connectionState.dgConnection = null;
+                            }
+                        } catch (error) {
+                            console.error(`[${timestamp()}] [${clientId}] Error handling Close event:`, error);
+                        }
+                    });
+
+                    // Handle Error event - needs special handling for connection errors
+                    dgConn.on(LiveTranscriptionEvents.Error, (data) => {
+                        try {
+                            console.error(`[${timestamp()}] [${clientId}] Deepgram connection error:`, data);
+                            
+                            // Forward the error if not closing
+                            if (!connectionState.isClosing) {
+                                console.log(`[${timestamp()}] [${clientId}] Forwarding Error event:`, JSON.stringify(data));
+                                sendToClient(data);
+                            }
+                            
+                            // Handle initialization errors
+                            if (!connectionState.dgConnection) {
+                                clearTimeout(timeoutId);
+                                reject(data);
+                            }
+                        } catch (error) {
+                            console.error(`[${timestamp()}] [${clientId}] Error handling Error event:`, error);
+                        }
+                    });
+
+                    // Setup handlers for remaining events
+                    [
+                        LiveTranscriptionEvents.Warning,
+                        LiveTranscriptionEvents.Transcript,
+                        LiveTranscriptionEvents.Metadata,
+                        LiveTranscriptionEvents.SpeechStarted,
+                        LiveTranscriptionEvents.SpeechFinished,
+                        LiveTranscriptionEvents.UtteranceEnd,
+                        LiveTranscriptionEvents.Unhandled
+                    ].forEach(eventName => {
+                        dgConn.on(eventName, (data) => {
+                            if (!connectionState.isClosing) {
+                                try {
+                                    console.log(`[${timestamp()}] [${clientId}] Forwarding ${eventName} event:`, JSON.stringify(data));
+                                    sendToClient(data);
+                                } catch (error) {
+                                    console.error(`[${timestamp()}] [${clientId}] Error forwarding ${eventName} event:`, error);
+                                }
+                            }
+                        });
+                    });
+
+                } catch (error) {
+                    clearTimeout(timeoutId);
+                    reject(error);
+                }
+            });
         }
 
         // Setup keepalive ping
@@ -314,7 +252,7 @@ dgConn.on(LiveTranscriptionEvents.SpeechFinished, (data) => {
         clientWs.on('message', async (data) => {
             if (connectionState.isClosing) return;
 
-            console.log(`[${timestamp()}] [${clientId}] Received message, length: ${data?.length || 0}`);
+            //console.log(`[${timestamp()}] [${clientId}] Received message, length: ${data?.length || 0}`);
 
             try {
                 // Try to parse as JSON first
@@ -341,7 +279,7 @@ dgConn.on(LiveTranscriptionEvents.SpeechFinished, (data) => {
                 try {
                     if (connectionState.dgConnection) {
                         connectionState.dgConnection.send(data);
-                        console.log(`[${timestamp()}] [${clientId}] Forwarded audio chunk: ${data.length} bytes`);
+                        //console.log(`[${timestamp()}] [${clientId}] Forwarded audio chunk: ${data.length} bytes`);
                     }
                 } catch (error) {
                     console.error(`[${timestamp()}] [${clientId}] Error sending to Deepgram:`, error);
