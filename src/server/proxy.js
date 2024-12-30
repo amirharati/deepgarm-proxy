@@ -81,53 +81,146 @@ const setupWebSocketProxy = (wss, externalConfig = {}) => {
                     console.log(`[${timestamp()}] [${clientId}] Creating Deepgram client...`);
                     const deepgram = createClient(apiKey);
 
-                    console.log(`[${timestamp()}] [${clientId}] Initializing live transcription...`);
-                    const dgConn = deepgram.listen.live({
-                        ...externalConfig.server.deepgramParams,
-                        punctuate: true,  // Enable punctuation
-                        encoding: 'linear16',
-                        sample_rate: 16000,
-                        channels: 1
-                    });
+                    console.log(`[${timestamp()}] [${clientId}] Using Deepgram parameters:`, externalConfig.server.deepgramParams);
+                    
+                    const dgConn = deepgram.listen.live(externalConfig.server.deepgramParams);
 
                     // Setup event handlers
-                    dgConn.on(LiveTranscriptionEvents.Open, () => {
-                        if (connectionState.isClosing) {
-                            dgConn.finish();
-                            return;
+                   // Add listener for each specific Deepgram event
+                    dgConn.on(LiveTranscriptionEvents.Open, (data) => {
+                        if (!connectionState.isClosing) {
+                            try {
+                                //console.log(`[${timestamp()}] [${clientId}] Forwarding Open event:`, JSON.stringify(data));
+                                sendToClient(data);
+
+                                clearTimeout(timeoutId);
+                                console.log(`[${timestamp()}] [${clientId}] Deepgram connection opened`);
+                                connectionState.dgConnection = dgConn;
+                                resolve(dgConn);
+                            } catch (error) {
+                                console.error(`[${timestamp()}] [${clientId}] Error forwarding Open event:`, error);
+                            }
                         }
-                        clearTimeout(timeoutId);
-                        console.log(`[${timestamp()}] [${clientId}] Deepgram connection opened`);
-                        connectionState.dgConnection = dgConn;
-                        resolve(dgConn);
                     });
 
-                    dgConn.on(LiveTranscriptionEvents.Close, () => {
-                        console.log(`[${timestamp()}] [${clientId}] Deepgram connection closed`);
+                    dgConn.on(LiveTranscriptionEvents.Close, (data) => {
+
                         if (connectionState.dgConnection === dgConn) {
                             connectionState.dgConnection = null;
                         }
+                        if (!connectionState.isClosing) {
+                            try {
+                                console.log(`[${timestamp()}] [${clientId}] Forwarding Close event:`, JSON.stringify(data));
+                                sendToClient(data);
+                            } catch (error) {
+                                console.error(`[${timestamp()}] [${clientId}] Error forwarding Close event:`, error);
+                            }
+                        }
                     });
 
-                    dgConn.on(LiveTranscriptionEvents.Error, (error) => {
+                    dgConn.on(LiveTranscriptionEvents.Error, (data) => {
                         console.error(`[${timestamp()}] [${clientId}] Deepgram connection error:`, error);
                         if (!connectionState.dgConnection) {
                             clearTimeout(timeoutId);
                             reject(error);
+                        }
+                        if (!connectionState.isClosing) {
+                            try {
+                                console.log(`[${timestamp()}] [${clientId}] Forwarding Error event:`, JSON.stringify(data));
+                                sendToClient(data);
+                            } catch (error) {
+                                console.error(`[${timestamp()}] [${clientId}] Error forwarding Error event:`, error);
+                            }
+                        }
+                    });
+
+                    dgConn.on(LiveTranscriptionEvents.Warning, (data) => {
+                        if (!connectionState.isClosing) {
+                            try {
+                                console.log(`[${timestamp()}] [${clientId}] Forwarding Warning event:`, JSON.stringify(data));
+                                sendToClient(data);
+                            } catch (error) {
+                                console.error(`[${timestamp()}] [${clientId}] Error forwarding Warning event:`, error);
+                            }
                         }
                     });
 
                     dgConn.on(LiveTranscriptionEvents.Transcript, (data) => {
                         if (!connectionState.isClosing) {
                             try {
-                                console.log(`[${timestamp()}] [${clientId}] Received transcript:`, JSON.stringify(data));
+                                console.log(`[${timestamp()}] [${clientId}] Forwarding Transcript event:`, JSON.stringify(data));
                                 sendToClient(data);
                             } catch (error) {
-                                console.error(`[${timestamp()}] [${clientId}] Error handling transcript:`, error);
+                                console.error(`[${timestamp()}] [${clientId}] Error forwarding Transcript event:`, error);
                             }
                         }
                     });
 
+                    dgConn.on(LiveTranscriptionEvents.Metadata, (data) => {
+                        if (!connectionState.isClosing) {
+                            try {
+                                console.log(`[${timestamp()}] [${clientId}] Forwarding Metadata event:`, JSON.stringify(data));
+                                sendToClient(data);
+                            } catch (error) {
+                                console.error(`[${timestamp()}] [${clientId}] Error forwarding Metadata event:`, error);
+                            }
+                        }
+                    });
+
+                    dgConn.on(LiveTranscriptionEvents.SpeechStarted, (data) => {
+                        if (!connectionState.isClosing) {
+                            try {
+                                console.log(`[${timestamp()}] [${clientId}] Forwarding SpeechStarted event:`, JSON.stringify(data));
+                                sendToClient(data);
+                            } catch (error) {
+                                console.error(`[${timestamp()}] [${clientId}] Error forwarding SpeechStarted event:`, error);
+                            }
+                        }
+                    });
+
+                    dgConn.on(LiveTranscriptionEvents.SpeechFinished, (data) => {
+                        if (!connectionState.isClosing) {
+                            try {
+                                console.log(`[${timestamp()}] [${clientId}] Forwarding SpeechFinished event:`, JSON.stringify(data));
+                                sendToClient(data);
+                            } catch (error) {
+                                console.error(`[${timestamp()}] [${clientId}] Error forwarding SpeechFinished event:`, error);
+                            }
+                        }
+                    });
+
+                    dgConn.on(LiveTranscriptionEvents.UtteranceEnd, (data) => {
+                        if (!connectionState.isClosing) {
+                            try {
+                                console.log(`[${timestamp()}] [${clientId}] Forwarding UtteranceEnd event:`, JSON.stringify(data));
+                                sendToClient(data);
+                            } catch (error) {
+                                console.error(`[${timestamp()}] [${clientId}] Error forwarding UtteranceEnd event:`, error);
+                            }
+                        }
+                    });
+                    
+                    dgConn.on(LiveTranscriptionEvents.Unhandled, (data) => {
+                        if (!connectionState.isClosing) {
+                            try {
+                                console.log(`[${timestamp()}] [${clientId}] Forwarding Unhandled event:`, JSON.stringify(data));
+                                sendToClient(data);
+                            } catch (error) {
+                                console.error(`[${timestamp()}] [${clientId}] Error forwarding Unhandled event:`, error);
+                            }
+                        }
+                    });
+
+dgConn.on(LiveTranscriptionEvents.SpeechFinished, (data) => {
+    if (!connectionState.isClosing) {
+        try {
+            console.log(`[${timestamp()}] [${clientId}] Forwarding SpeechFinished event:`, JSON.stringify(data));
+            sendToClient(data);
+        } catch (error) {
+            console.error(`[${timestamp()}] [${clientId}] Error forwarding SpeechFinished event:`, error);
+        }
+    }
+});
                 } catch (error) {
                     clearTimeout(timeoutId);
                     reject(error);
