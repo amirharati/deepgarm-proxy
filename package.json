@@ -2,7 +2,7 @@
   "name": "deepgram-proxy",
   "version": "1.0.0",
   "main": "index.js",
- "scripts": {
+  "scripts": {
     "start:client": "node src/client/index.js",
     "start:server": "node src/server/index.js",
     "dev": "concurrently \"npm run start:client\" \"npm run start:server\""
@@ -12,11 +12,12 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
-    "concurrently": "^8.0.0",
     "@deepgram/sdk": "^3.9.0",
+    "concurrently": "^8.0.0",
     "config": "^3.3.12",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
+    "firebase-admin": "^13.0.2",
     "ws": "^8.13.0"
   },
   "devDependencies": {

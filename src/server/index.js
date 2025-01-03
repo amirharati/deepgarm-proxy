@@ -2,13 +2,19 @@ require('dotenv').config();
 const express = require('express');
 const http = require('http');
 const WebSocket = require('ws');
+const admin = require('firebase-admin');
 const config = require('config');
 const { setupWebSocketProxy } = require('./proxy');
+
+// Initialize Firebase Admin
+const firebaseCredentials = JSON.parse(process.env.FIREBASE_CREDENTIALS);
+admin.initializeApp({
+  credential: admin.credential.cert(firebaseCredentials)
+});
 
 // Create express app
 const app = express();
 
-// HTTP handlers first
 app.get('/', (req, res) => {
     console.log('HTTP request received');
     res.setHeader('Content-Type', 'text/plain');
@@ -20,35 +26,70 @@ app.get('/health', (req, res) => {
     res.status(200).send('OK');
 });
 
-// Create http server
 const server = http.createServer((req, res) => {
     console.log('Raw HTTP request:', req.method, req.url);
     app(req, res);
 });
 
-// Create WebSocket server
 const wss = new WebSocket.Server({ 
     noServer: true,
     clientTracking: true 
 });
 
-// Handle upgrade manually
-server.on('upgrade', (request, socket, head) => {
+// Extract token from WebSocket request
+function getTokenFromRequest(request) {
+    const url = new URL(request.url, `http://${request.headers.host}`);
+    return url.searchParams.get('auth_token');
+}
+
+// Handle upgrade with authentication
+server.on('upgrade', async (request, socket, head) => {
     console.log('Upgrade request received');
     
-    // Add explicit error handling for upgrade
     socket.on('error', (err) => {
         console.error('Socket error during upgrade:', err);
+        socket.destroy();
     });
 
     try {
-        wss.handleUpgrade(request, socket, head, (ws) => {
-            console.log('WebSocket connection established');
-            wss.emit('connection', ws, request);
-        });
+        // Get and verify token
+        const token = getTokenFromRequest(request);
+        if (!token) {
+            console.error('No token provided');
+            socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+            socket.destroy();
+            return;
+        }
+
+        try {
+            // Verify token with Firebase
+            const decodedToken = await admin.auth().verifyIdToken(token);
+            console.log('Token verified for user:', decodedToken.uid);
+            
+            // Create a clean request object without exposing internal details
+            const cleanRequest = {
+                ...request,
+                userId: decodedToken.uid,  // Add user ID for proxy to use
+                url: request.url,
+                headers: {
+                    ...request.headers,
+                    // Remove any sensitive headers if needed
+                }
+            };
+            
+            wss.handleUpgrade(request, socket, head, (ws) => {
+                console.log('WebSocket connection established');
+                wss.emit('connection', ws, cleanRequest);
+            });
+        } catch (error) {
+            console.error('Token verification failed:', error);
+            socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+            socket.destroy();
+            return;
+        }
     } catch (err) {
         console.error('Error during upgrade handling:', err);
-        socket.end();
+        socket.destroy();
     }
 });
 
@@ -60,7 +101,7 @@ try {
     console.error('Error setting up proxy:', err);
 }
 
-// Start server with explicit error handling
+// Start server
 const port = process.env.PORT || 8080;
 server.listen(port, '0.0.0.0', () => {
     console.log(`Server listening on port ${port}`);

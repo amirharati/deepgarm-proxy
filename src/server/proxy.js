@@ -9,6 +9,50 @@ function timestamp() {
     return new Date().toISOString();
 }
 
+function sanitizeEventData(data) {
+    const sanitized = JSON.parse(JSON.stringify(data));
+    const ourApiKey = process.env.DEEPGRAM_API_KEY || config.deepgram.key;
+    
+    // Known sensitive field names
+    const sensitiveFields = [
+        'key',
+        'Authorization',
+        'headers',
+        '_tlsOptions',
+        'secureContext',
+        'ssl',
+        '_socket',
+        'request_id',
+        '_readableState',
+        '_writableState',
+        'baseUrl'
+    ];
+    
+    function removeSensitiveInfo(obj) {
+        if (typeof obj !== 'object' || obj === null) return;
+        
+        // Remove known sensitive fields
+        for (const field of sensitiveFields) {
+            delete obj[field];
+        }
+        
+        // Remove any instance of our API key
+        for (const [key, value] of Object.entries(obj)) {
+            if (value === ourApiKey) {
+                delete obj[key];
+            }
+        }
+        
+        // Recurse through nested objects
+        for (const value of Object.values(obj)) {
+            removeSensitiveInfo(value);
+        }
+    }
+    
+    removeSensitiveInfo(sanitized);
+    return sanitized;
+}
+
 /**
  * Retrieves Deepgram API key from config or environment
  * @param {Object} externalConfig - Configuration object
@@ -66,6 +110,7 @@ const setupWebSocketProxy = (wss, externalConfig = {}) => {
         function sendToClient(data) {
             if (clientWs.readyState === WebSocket.OPEN && !connectionState.isClosing) {
                 try {
+             
                     clientWs.send(JSON.stringify(data));
                 } catch (error) {
                     console.error(`[${timestamp()}] [${clientId}] Error sending to client:`, error);
@@ -130,6 +175,7 @@ const setupWebSocketProxy = (wss, externalConfig = {}) => {
                     // Handle Open event - needs special handling for connection state
                     dgConn.on(LiveTranscriptionEvents.Open, (data) => {
                         try {
+                            data = sanitizeEventData(data);
                             // Handle connection state first
                             clearTimeout(timeoutId);
                             console.log(`[${timestamp()}] [${clientId}] Deepgram connection opened`);
@@ -151,6 +197,7 @@ const setupWebSocketProxy = (wss, externalConfig = {}) => {
                     // Handle Close event - needs special handling for connection cleanup
                     dgConn.on(LiveTranscriptionEvents.Close, (data) => {
                         try {
+                            data = sanitizeEventData(data);
                             // Forward the event if not closing
                             if (!connectionState.isClosing) {
                                 console.log(`[${timestamp()}] [${clientId}] Forwarding Close event:`, JSON.stringify(data));
@@ -170,6 +217,7 @@ const setupWebSocketProxy = (wss, externalConfig = {}) => {
                     // Handle Error event - needs special handling for connection errors
                     dgConn.on(LiveTranscriptionEvents.Error, (data) => {
                         try {
+                            data = sanitizeEventData(data);
                             console.error(`[${timestamp()}] [${clientId}] Deepgram connection error:`, data);
                             
                             // Forward the error if not closing
@@ -201,10 +249,18 @@ const setupWebSocketProxy = (wss, externalConfig = {}) => {
                         dgConn.on(eventName, (data) => {
                             if (!connectionState.isClosing) {
                                 try {
-                                    console.log(`[${timestamp()}] [${clientId}] Forwarding ${eventName} event:`, JSON.stringify(data));
-                                    sendToClient(data);
+                                    // Only sanitize Warning and Metadata events
+                                    const eventData = (eventName === LiveTranscriptionEvents.Warning || 
+                                                     eventName === LiveTranscriptionEvents.Metadata || LiveTranscriptionEvents.Unhandled) 
+                                        ? sanitizeEventData(data) 
+                                        : data;
+                                    
+                                    console.log(`[${timestamp()}] [${clientId}] Forwarding ${eventName} event:`, 
+                                        JSON.stringify(eventData));
+                                    sendToClient(eventData);
                                 } catch (error) {
-                                    console.error(`[${timestamp()}] [${clientId}] Error forwarding ${eventName} event:`, error);
+                                    console.error(`[${timestamp()}] [${clientId}] Error forwarding ${eventName} event:`, 
+                                        error);
                                 }
                             }
                         });
@@ -308,5 +364,7 @@ const setupWebSocketProxy = (wss, externalConfig = {}) => {
         getConnectionCount: () => activeConnections.size
     };
 };
+
+
 
 module.exports = { setupWebSocketProxy };
