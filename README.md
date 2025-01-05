@@ -1,3 +1,4 @@
+```markdown
 # Deepgram WebSocket Proxy
 
 A WebSocket proxy server that enables real-time speech-to-text transcription using Deepgram's API. This application includes both a client interface for audio recording and a server component that handles WebSocket connections and Deepgram integration.
@@ -5,11 +6,13 @@ A WebSocket proxy server that enables real-time speech-to-text transcription usi
 ## Features
 
 - Real-time audio transcription using Deepgram
-- WebSocket-based communication
+- WebSocket-based communication 
 - Support for both local development and Cloud Run deployment
 - Browser-based client interface
 - Linear16 audio encoding support
 - Connection state management and error handling
+- Firebase Authentication integration
+- Secure token-based access
 
 ## Prerequisites
 
@@ -17,6 +20,7 @@ A WebSocket proxy server that enables real-time speech-to-text transcription usi
 - Docker (for Cloud Run deployment)
 - Google Cloud CLI (for deployment)
 - A Deepgram API key
+- Firebase project and service account credentials
 
 ## Project Structure
 
@@ -27,12 +31,26 @@ A WebSocket proxy server that enables real-time speech-to-text transcription usi
 │   │   ├── client.js     # WebSocket client
 │   │   └── index.html    # Web interface
 │   └── server/           # WebSocket server
-│       ├── index.js      # Server entry point
+│       ├── index.js      # Server entry point (with auth)
+│       ├── index_old.js  # Server without auth (for testing)
 │       └── proxy.js      # Deepgram proxy logic
 ├── config/               # Configuration files
 ├── Dockerfile           # For Cloud Run deployment
 └── package.json
 ```
+
+## Authentication Setup
+
+1. Firebase Configuration:
+   - Create a Firebase project
+   - Generate service account key from Firebase Console
+   - Save as service-account.json
+
+2. Create Cloud Run Secrets:
+   ```bash
+   gcloud secrets create firebase-creds --project=YOUR_PROJECT_ID --data-file=service-account.json
+   gcloud secrets create deepgram-key --data-file=<(echo -n "your_deepgram_api_key")
+   ```
 
 ## Local Development
 
@@ -43,6 +61,7 @@ A WebSocket proxy server that enables real-time speech-to-text transcription usi
 
 2. Create a `.env` file in the root directory:
    ```
+   FIREBASE_CREDENTIALS=<content of service-account.json>
    DEEPGRAM_API_KEY=your_deepgram_api_key
    ```
 
@@ -55,9 +74,13 @@ This will start:
 - Client server on http://localhost:8000
 - WebSocket server on port 8080
 
-4. Open http://localhost:8000 in your browser
-5. Select "Local Server" in the connection dropdown
-6. Click "Connect" and test the transcription
+4. Testing Options:
+   - With Authentication (index.js):
+     - Requires valid Firebase token
+     - Token passed as 'auth_token' query parameter
+   - Without Authentication (index_old.js):
+     - Quick testing without auth requirements
+     - Modify server startup to use index_old.js
 
 ## Cloud Run Deployment
 
@@ -71,7 +94,7 @@ This will start:
    docker push gcr.io/YOUR_PROJECT_ID/deepgram-proxy
    ```
 
-3. Deploy to Cloud Run:
+3. Deploy to Cloud Run with secrets:
    ```bash
    gcloud run deploy deepgram-proxy \
      --image gcr.io/YOUR_PROJECT_ID/deepgram-proxy \
@@ -79,7 +102,7 @@ This will start:
      --region us-central1 \
      --allow-unauthenticated \
      --session-affinity \
-     --set-env-vars=DEEPGRAM_API_KEY="your_deepgram_api_key"
+     --set-secrets=FIREBASE_CREDENTIALS=firebase-creds:latest,DEEPGRAM_API_KEY=deepgram-key:latest
    ```
 
 4. After deployment:
@@ -103,18 +126,33 @@ This will start:
    - Verify WebSocket connection
    - Test audio transcription
 
+3. Authentication Testing:
+   - Verify token generation in client
+   - Check token validation logs in server
+   - Test with invalid/expired tokens
+   - Test with no token
+
 ## Configuration
 
 The application can be configured through:
 - Environment variables (`.env` file)
 - `config/default.json` for server settings
 - Client-side connection settings in the web interface
+- Firebase configuration for authentication
+
+## Security Notes
+
+- All requests require valid Firebase authentication token
+- Tokens expire after 1 hour and need refresh
+- WebSocket connections maintain validity until disconnected
+- Deepgram API key is secured in Cloud Run secrets
 
 ## Limitations
 
 - Audio must be in LINEAR16 format (16-bit PCM)
 - WebSocket connections require session affinity in Cloud Run
 - Browser must support WebSocket and Audio APIs
+- Tokens must be refreshed periodically
 
 ## Troubleshooting
 
@@ -122,12 +160,20 @@ The application can be configured through:
    - Verify the WebSocket URL is correct
    - Check browser console for errors
    - Ensure Cloud Run service is deployed correctly
+   - Verify token is valid and not expired
 
 2. Audio Issues:
    - Grant microphone permissions in browser
    - Check audio input device
    - Verify audio format settings
 
+3. Authentication Issues:
+   - Check Firebase configuration
+   - Verify token generation
+   - Check server logs for auth errors
+   - Try index_old.js to isolate auth problems
+
 ## License
 
 ISC License
+```

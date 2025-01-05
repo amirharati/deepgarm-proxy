@@ -3,6 +3,7 @@
         "port": 8080,
         "deepgramUrl": "wss://api.deepgram.com/v1/listen",
         "deepgramParams": {
+          "model": "nova-2", 
           "detect_language": false,
           "encoding": "linear16",
           "sample_rate": 16000,

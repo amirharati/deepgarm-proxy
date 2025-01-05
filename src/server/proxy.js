@@ -1,5 +1,13 @@
 const { createClient, LiveTranscriptionEvents } = require('@deepgram/sdk');
 const WebSocket = require('ws');
+const EVENTS_TO_SANITIZE = [
+    LiveTranscriptionEvents.Open,
+    LiveTranscriptionEvents.Close,
+    LiveTranscriptionEvents.Warning,
+    LiveTranscriptionEvents.Error,
+    LiveTranscriptionEvents.Metadata,
+    LiveTranscriptionEvents.Unhandled
+];
 
 /**
  * Returns ISO timestamp for consistent logging
@@ -9,11 +17,15 @@ function timestamp() {
     return new Date().toISOString();
 }
 
+/**
+ * Sanitizes event data by removing sensitive information
+ * @param {Object} data - Data to sanitize
+ * @returns {Object} Sanitized data object
+ */
 function sanitizeEventData(data) {
     const sanitized = JSON.parse(JSON.stringify(data));
     const ourApiKey = process.env.DEEPGRAM_API_KEY || config.deepgram.key;
     
-    // Known sensitive field names
     const sensitiveFields = [
         'key',
         'Authorization',
@@ -31,19 +43,16 @@ function sanitizeEventData(data) {
     function removeSensitiveInfo(obj) {
         if (typeof obj !== 'object' || obj === null) return;
         
-        // Remove known sensitive fields
         for (const field of sensitiveFields) {
             delete obj[field];
         }
         
-        // Remove any instance of our API key
         for (const [key, value] of Object.entries(obj)) {
             if (value === ourApiKey) {
                 delete obj[key];
             }
         }
         
-        // Recurse through nested objects
         for (const value of Object.values(obj)) {
             removeSensitiveInfo(value);
         }
@@ -62,7 +71,6 @@ function sanitizeEventData(data) {
 function getDeepgramKey(externalConfig) {
     console.log(`[${timestamp()}] Checking for Deepgram API key...`);
     
-    // Don't log actual API key in production
     console.log(`[${timestamp()}] Environment variable DEEPGRAM_API_KEY presence:`, 
         !!process.env.DEEPGRAM_API_KEY);
 
@@ -78,12 +86,13 @@ function getDeepgramKey(externalConfig) {
 }
 
 /**
- * Sets up WebSocket proxy to Deepgram service
+ * Sets up WebSocket proxy to Deepgram service with credit tracking
  * @param {WebSocket.Server} wss - WebSocket server instance
  * @param {Object} externalConfig - Configuration for the proxy
+ * @param {EventEmitter} eventEmitter - Event emitter for credit updates
  * @returns {Object} Interface for managing the proxy
  */
-const setupWebSocketProxy = (wss, externalConfig = {}) => {
+const setupWebSocketProxy = (wss, externalConfig = {}, eventEmitter) => {
     const apiKey = getDeepgramKey(externalConfig);
     console.log(`[${timestamp()}] WebSocket server initialized`);
     
@@ -92,16 +101,40 @@ const setupWebSocketProxy = (wss, externalConfig = {}) => {
 
     wss.on('connection', async (clientWs, req) => {
         const clientId = Math.random().toString(36).substring(7);
-        console.log(`[${timestamp()}] New client connected - ID: ${clientId}, IP: ${req.socket.remoteAddress}`);
+        const userId = req.userId;  // From enhanced request in index.js
+        console.log(`[${timestamp()}] New client connected - ID: ${clientId}, User: ${userId}`);
         
+        // Connection state tracking including credit measurement
         const connectionState = {
             dgConnection: null,
             isAlive: true,
-            isClosing: false
+            isClosing: false,
+            startTime: Date.now(), // Track start time for duration calculation
+            totalDuration: 0 // Accumulator for total connection duration
         };
         
         activeConnections.set(clientId, connectionState);
-        console.log(`[${timestamp()}] Active connections: ${activeConnections.size}`);
+
+        /**
+         * Emit credit usage event for user
+         * @param {boolean} isClosed - Whether connection is being closed
+         */
+        function emitCreditUsage(isClosed = false) {
+            const duration = (Date.now() - connectionState.startTime) / 1000; // Convert to seconds
+            connectionState.totalDuration += duration;
+            
+            // Emit credit event for processing
+            eventEmitter.emit('credit_update', {
+                userId,
+                duration,
+                isClosed,
+                totalDuration: connectionState.totalDuration
+            });
+            
+            // Reset timer for next duration calculation
+            connectionState.startTime = Date.now();
+            console.log(`[${timestamp()}] Credit usage event - Duration: ${duration}s, Total: ${connectionState.totalDuration}s`);
+        }
 
         /**
          * Sends data to the connected client
@@ -110,7 +143,6 @@ const setupWebSocketProxy = (wss, externalConfig = {}) => {
         function sendToClient(data) {
             if (clientWs.readyState === WebSocket.OPEN && !connectionState.isClosing) {
                 try {
-             
                     clientWs.send(JSON.stringify(data));
                 } catch (error) {
                     console.error(`[${timestamp()}] [${clientId}] Error sending to client:`, error);
@@ -120,14 +152,16 @@ const setupWebSocketProxy = (wss, externalConfig = {}) => {
 
         /**
          * Cleans up all connections and resources
+         * Emits final credit usage before cleanup
          */
         function terminateConnection() {
-            connectionState.isClosing = true;
-            
-            if (pingInterval) {
-                clearInterval(pingInterval);
+            // Emit final credit update if connection was active
+            if (!connectionState.isClosing) {
+                emitCreditUsage(true);
+                connectionState.isClosing = true;
             }
             
+            // Cleanup Deepgram connection
             if (connectionState.dgConnection) {
                 try {
                     connectionState.dgConnection.finish();
@@ -139,6 +173,7 @@ const setupWebSocketProxy = (wss, externalConfig = {}) => {
             
             activeConnections.delete(clientId);
             
+            // Close client connection
             try {
                 if (clientWs.readyState === WebSocket.OPEN) {
                     clientWs.close();
@@ -147,18 +182,16 @@ const setupWebSocketProxy = (wss, externalConfig = {}) => {
                 console.error(`[${timestamp()}] [${clientId}] Error closing client connection:`, error);
             }
             
-            console.log(`[${timestamp()}] [${clientId}] Connection terminated. Active connections: ${activeConnections.size}`);
+            console.log(`[${timestamp()}] [${clientId}] Connection terminated. Total duration: ${connectionState.totalDuration}s`);
         }
 
         /**
          * Initializes connection to Deepgram service
+         * Sets up event handlers for transcription and credit tracking
          * @returns {Promise<Object>} Deepgram connection instance
          */
         async function initializeDeepgramConnection() {
-            if (connectionState.isClosing) {
-                console.log(`[${timestamp()}] [${clientId}] Connection is closing, skipping initialization`);
-                return null;
-            }
+            if (connectionState.isClosing) return null;
 
             return new Promise((resolve, reject) => {
                 const timeoutId = setTimeout(() => {
@@ -172,74 +205,30 @@ const setupWebSocketProxy = (wss, externalConfig = {}) => {
                     console.log(`[${timestamp()}] [${clientId}] Using Deepgram parameters:`, externalConfig.server.deepgramParams);
                     const dgConn = deepgram.listen.live(externalConfig.server.deepgramParams);
 
-                    // Handle Open event - needs special handling for connection state
-                    dgConn.on(LiveTranscriptionEvents.Open, (data) => {
-                        try {
-                            data = sanitizeEventData(data);
-                            // Handle connection state first
-                            clearTimeout(timeoutId);
-                            console.log(`[${timestamp()}] [${clientId}] Deepgram connection opened`);
-                            connectionState.dgConnection = dgConn;
-                            
-                            // Forward the event if not closing
-                            if (!connectionState.isClosing) {
-                                console.log(`[${timestamp()}] [${clientId}] Forwarding Open event:`, JSON.stringify(data));
-                                sendToClient(data);
-                            }
-                            
-                            resolve(dgConn);
-                        } catch (error) {
-                            console.error(`[${timestamp()}] [${clientId}] Error handling Open event:`, error);
-                            reject(error);
+                    // Handle transcription results and credit tracking
+                    dgConn.on(LiveTranscriptionEvents.Transcript, (data) => {
+                        if (!connectionState.isClosing) {
+                            //emitCreditUsage(false);
+                            //print(JSON.stringify(data));
+                            //console.log(JSON.stringify(data));
+                           sendToClient(data);
                         }
                     });
 
-                    // Handle Close event - needs special handling for connection cleanup
-                    dgConn.on(LiveTranscriptionEvents.Close, (data) => {
-                        try {
-                            data = sanitizeEventData(data);
-                            // Forward the event if not closing
-                            if (!connectionState.isClosing) {
-                                console.log(`[${timestamp()}] [${clientId}] Forwarding Close event:`, JSON.stringify(data));
-                                sendToClient(data);
-                            }
-                            
-                            // Clean up connection state
-                            if (connectionState.dgConnection === dgConn) {
-                                console.log(`[${timestamp()}] [${clientId}] Clearing Deepgram connection reference`);
-                                connectionState.dgConnection = null;
-                            }
-                        } catch (error) {
-                            console.error(`[${timestamp()}] [${clientId}] Error handling Close event:`, error);
+                    dgConn.on(LiveTranscriptionEvents.UtteranceEnd, (data) => {
+                        if (!connectionState.isClosing) {
+                            // Update credits when speech segment ends
+                            emitCreditUsage(false);
+                            //sendToClient(data);
                         }
                     });
 
-                    // Handle Error event - needs special handling for connection errors
-                    dgConn.on(LiveTranscriptionEvents.Error, (data) => {
-                        try {
-                            data = sanitizeEventData(data);
-                            console.error(`[${timestamp()}] [${clientId}] Deepgram connection error:`, data);
-                            
-                            // Forward the error if not closing
-                            if (!connectionState.isClosing) {
-                                console.log(`[${timestamp()}] [${clientId}] Forwarding Error event:`, JSON.stringify(data));
-                                sendToClient(data);
-                            }
-                            
-                            // Handle initialization errors
-                            if (!connectionState.dgConnection) {
-                                clearTimeout(timeoutId);
-                                reject(data);
-                            }
-                        } catch (error) {
-                            console.error(`[${timestamp()}] [${clientId}] Error handling Error event:`, error);
-                        }
-                    });
-
-                    // Setup handlers for remaining events
+                    // Setup handlers for all other events
                     [
+                        LiveTranscriptionEvents.Open,
+                        LiveTranscriptionEvents.Close,
+                        LiveTranscriptionEvents.Error,
                         LiveTranscriptionEvents.Warning,
-                        LiveTranscriptionEvents.Transcript,
                         LiveTranscriptionEvents.Metadata,
                         LiveTranscriptionEvents.SpeechStarted,
                         LiveTranscriptionEvents.SpeechFinished,
@@ -248,24 +237,15 @@ const setupWebSocketProxy = (wss, externalConfig = {}) => {
                     ].forEach(eventName => {
                         dgConn.on(eventName, (data) => {
                             if (!connectionState.isClosing) {
-                                try {
-                                    // Only sanitize Warning and Metadata events
-                                    const eventData = (eventName === LiveTranscriptionEvents.Warning || 
-                                                     eventName === LiveTranscriptionEvents.Metadata || LiveTranscriptionEvents.Unhandled) 
-                                        ? sanitizeEventData(data) 
-                                        : data;
-                                    
-                                    console.log(`[${timestamp()}] [${clientId}] Forwarding ${eventName} event:`, 
-                                        JSON.stringify(eventData));
-                                    sendToClient(eventData);
-                                } catch (error) {
-                                    console.error(`[${timestamp()}] [${clientId}] Error forwarding ${eventName} event:`, 
-                                        error);
-                                }
+                                const eventData = EVENTS_TO_SANITIZE.includes(eventName) 
+                                    ? sanitizeEventData(data) : data;
+                                sendToClient(eventData);  // Just send the sanitized data directly
                             }
                         });
                     });
 
+                    clearTimeout(timeoutId);
+                    resolve(dgConn);
                 } catch (error) {
                     clearTimeout(timeoutId);
                     reject(error);
@@ -273,29 +253,10 @@ const setupWebSocketProxy = (wss, externalConfig = {}) => {
             });
         }
 
-        // Setup keepalive ping
-        const pingInterval = setInterval(() => {
-            if (!connectionState.isAlive && !connectionState.isClosing) {
-                console.log(`[${timestamp()}] Client ${clientId} unresponsive, terminating connection`);
-                terminateConnection();
-                return;
-            }
-            connectionState.isAlive = false;
-            if (clientWs.readyState === WebSocket.OPEN) {
-                clientWs.ping();
-            }
-        }, 30000);
-
-        // Handle pong responses
-        clientWs.on('pong', () => {
-            connectionState.isAlive = true;
-        });
-
         // Initialize Deepgram connection
         try {
-            const dgConn = await initializeDeepgramConnection();
-            if (!connectionState.isClosing && dgConn) {
-                console.log(`[${timestamp()}] [${clientId}] Connection initialized successfully`);
+            connectionState.dgConnection = await initializeDeepgramConnection();
+            if (!connectionState.isClosing) {
                 sendToClient({ type: 'ready' });
             }
         } catch (error) {
@@ -308,46 +269,23 @@ const setupWebSocketProxy = (wss, externalConfig = {}) => {
         clientWs.on('message', async (data) => {
             if (connectionState.isClosing) return;
 
-            //console.log(`[${timestamp()}] [${clientId}] Received message, length: ${data?.length || 0}`);
-
             try {
-                // Try to parse as JSON first
+                // Handle control messages
                 const jsonMessage = JSON.parse(data.toString());
                 if (jsonMessage.type === 'stop') {
                     console.log(`[${timestamp()}] [${clientId}] Received stop command`);
-                    if (connectionState.dgConnection) {
-                        connectionState.dgConnection.finish();
-                        connectionState.dgConnection = null;
-                    }
+                    terminateConnection();
+                    return;
                 }
             } catch (e) {
                 // Not JSON, assume it's audio data
-                if (!connectionState.dgConnection) {
-                    console.log(`[${timestamp()}] [${clientId}] No active Deepgram connection, reinitializing...`);
-                    try {
-                        connectionState.dgConnection = await initializeDeepgramConnection();
-                    } catch (error) {
-                        console.error(`[${timestamp()}] [${clientId}] Reinitialization failed:`, error);
-                        return;
-                    }
-                }
-
-                try {
-                    if (connectionState.dgConnection) {
-                        connectionState.dgConnection.send(data);
-                        //console.log(`[${timestamp()}] [${clientId}] Forwarded audio chunk: ${data.length} bytes`);
-                    }
-                } catch (error) {
-                    console.error(`[${timestamp()}] [${clientId}] Error sending to Deepgram:`, error);
-                    sendToClient({
-                        type: 'error',
-                        message: 'Failed to process audio'
-                    });
+                if (connectionState.dgConnection) {
+                    connectionState.dgConnection.send(data);
                 }
             }
         });
 
-        // Handle client disconnect
+        // Handle client disconnection
         clientWs.on('close', () => {
             console.log(`[${timestamp()}] [${clientId}] Client disconnected`);
             terminateConnection();
@@ -364,7 +302,5 @@ const setupWebSocketProxy = (wss, externalConfig = {}) => {
         getConnectionCount: () => activeConnections.size
     };
 };
-
-
 
 module.exports = { setupWebSocketProxy };
