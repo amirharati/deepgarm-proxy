@@ -1,179 +1,308 @@
-```markdown
 # Deepgram WebSocket Proxy
 
-A WebSocket proxy server that enables real-time speech-to-text transcription using Deepgram's API. This application includes both a client interface for audio recording and a server component that handles WebSocket connections and Deepgram integration.
+A WebSocket proxy server that enables real-time speech-to-text transcription using Deepgram's API. This application includes a production-ready server component with Firebase authentication and credit management, plus a testing client interface for audio recording and transcription.
 
 ## Features
 
-- Real-time audio transcription using Deepgram
-- WebSocket-based communication 
-- Support for both local development and Cloud Run deployment
-- Browser-based client interface
-- Linear16 audio encoding support
-- Connection state management and error handling
+- Real-time audio transcription using Deepgram's API
 - Firebase Authentication integration
-- Secure token-based access
-
-## Prerequisites
-
-- Node.js (v18 or later recommended)
-- Docker (for Cloud Run deployment)
-- Google Cloud CLI (for deployment)
-- A Deepgram API key
-- Firebase project and service account credentials
+- Sophisticated credit tracking system
+- Multi-device support with independent session tracking
+- Browser-based test client
+- Debug mode for development
+- Cloud Run deployment ready
+- LINEAR16 audio encoding
+- Comprehensive error handling
+- WebSocket connection management
 
 ## Project Structure
 
 ```
 ├── src/
-│   ├── client/           # Client application
-│   │   ├── index.js      # Client server
-│   │   ├── client.js     # WebSocket client
-│   │   └── index.html    # Web interface
-│   └── server/           # WebSocket server
-│       ├── index.js      # Server entry point (with auth)
-│       ├── index_old.js  # Server without auth (for testing)
-│       └── proxy.js      # Deepgram proxy logic
-├── config/               # Configuration files
-├── Dockerfile           # For Cloud Run deployment
+│   ├── client/              # Test client application
+│   │   ├── index.js         # Client server
+│   │   ├── client.js        # WebSocket client implementation
+│   │   └── index.html       # Web interface
+│   └── server/              # WebSocket proxy server
+│       ├── index.js         # Main server (with auth/credits)
+│       ├── proxy.js         # Deepgram WebSocket proxy
+│       └── credit_manager.js # Credit management system
+├── config/                  # Configuration files
+├── Dockerfile              # For Cloud Run deployment
 └── package.json
 ```
 
-## Authentication Setup
+## Prerequisites
 
-1. Firebase Configuration:
-   - Create a Firebase project
-   - Generate service account key from Firebase Console
-   - Save as service-account.json
+- Node.js (v18 or later recommended)
+- Google Cloud CLI
+- Docker Desktop
+- Firebase project
+- Deepgram API key
 
-2. Create Cloud Run Secrets:
-   ```bash
-   gcloud secrets create firebase-creds --project=YOUR_PROJECT_ID --data-file=service-account.json
-   gcloud secrets create deepgram-key --data-file=<(echo -n "your_deepgram_api_key")
-   ```
+## Environment Variables
+
+Required variables:
+- `FIREBASE_CREDENTIALS`: Firebase service account JSON
+- `DEEPGRAM_API_KEY`: Your Deepgram API key
+
+Optional variables:
+- `DEBUG_MODE`: Set to 'true' to bypass authentication and credit checks (default: false)
+- `PORT`: Server port (default: 8080)
+
+## Debug Mode
+
+Debug mode provides simplified testing by:
+- Bypassing authentication checks
+- Disabling credit verification/tracking
+- Using "debug-user" for all connections
+- Enabling additional logging
+
+Enable debug mode by setting `DEBUG_MODE=true` in your environment.
+
+## Authentication System
+
+### Token Verification
+- Requires Firebase ID token via 'auth_token' query parameter
+- Automatic token validation and expiration checking
+- Supports multiple concurrent device connections
+- Independent session management per device
+
+### Error States
+```
+401: Missing authentication token
+401: Token expired
+401: Token revoked
+401: Invalid token format
+403: Insufficient credits
+500: Server/validation errors
+```
+
+## Credit Management System
+
+### Credit Tracking Architecture
+- Per-user credit pool shared across devices
+- Independent session tracking per device
+- Credit consumption based on actual transcription events
+- Supports concurrent device connections
+
+### Credit Update Process
+- Buffers updates to optimize database writes
+- Configurable batch size (default: 100 updates)
+- Automatic flushing on connection close
+- Transaction-based updates prevent race conditions
+
+### Credit Verification
+- Initial verification during connection
+- Real-time monitoring during transcription
+- Shared credit pool across user's devices
+- Automatic session termination on credit exhaustion
 
 ## Local Development
 
 1. Install dependencies:
-   ```bash
-   npm install
-   ```
+```bash
+npm install
+```
 
-2. Create a `.env` file in the root directory:
-   ```
-   FIREBASE_CREDENTIALS=<content of service-account.json>
-   DEEPGRAM_API_KEY=your_deepgram_api_key
-   ```
+2. Create `.env` file:
+```
+FIREBASE_CREDENTIALS=<service-account-json>
+DEEPGRAM_API_KEY=your_deepgram_api_key
+DEBUG_MODE=true  # For testing
+```
 
-3. Run both client and server in development mode:
-   ```bash
-   npm run dev
-   ```
+3. Start development servers:
+```bash
+# Start test client
+npm run start:client # Runs on http://localhost:8000
 
-This will start:
-- Client server on http://localhost:8000
-- WebSocket server on port 8080
+# Start WebSocket server
+npm run start:server # Runs on port 8080
 
-4. Testing Options:
-   - With Authentication (index.js):
-     - Requires valid Firebase token
-     - Token passed as 'auth_token' query parameter
-   - Without Authentication (index_old.js):
-     - Quick testing without auth requirements
-     - Modify server startup to use index_old.js
+#  Start both test client and Websocket server
+npm run dev
+```
 
-## Cloud Run Deployment
+## Deployment
 
-1. Build the Docker image:
-   ```bash
-   docker build --platform linux/amd64 -t gcr.io/YOUR_PROJECT_ID/deepgram-proxy .
-   ```
+### 1. Initial Setup
 
-2. Push to Google Container Registry:
-   ```bash
-   docker push gcr.io/YOUR_PROJECT_ID/deepgram-proxy
-   ```
+```bash
+# Set environment variables for deployment
+export PROJECT_ID=$(gcloud config get-value project)
+export SERVICE_NAME="deepgram-proxy"
+export REGION="us-central1"
+export MEMORY="256Mi"  # Optimized for cost and free tier
 
-3. Deploy to Cloud Run with secrets:
-   ```bash
-   gcloud run deploy deepgram-proxy \
-     --image gcr.io/YOUR_PROJECT_ID/deepgram-proxy \
-     --platform managed \
-     --region us-central1 \
-     --allow-unauthenticated \
-     --session-affinity \
-     --set-secrets=FIREBASE_CREDENTIALS=firebase-creds:latest,DEEPGRAM_API_KEY=deepgram-key:latest
-   ```
+# Verify your active project
+gcloud config get-value project
+```
 
-4. After deployment:
-   - Copy the service URL provided by Cloud Run
-   - Open the client application (http://localhost:8000)
-   - Select "Cloud Run Server"
-   - Enter the service URL (without 'https://')
-   - Click "Connect" and test the transcription
+### 2. Firebase Setup
+
+1. Create Firebase project
+2. Enable Authentication and Firestore
+3. Generate service account key:
+   - Project Settings → Service accounts
+   - Generate New Private Key
+   - Save JSON file
+
+4. Set up Firestore structure:
+```
+app_data/
+  {userId}/
+    profile/
+      profile_doc/
+        content:
+          services:
+            asr:
+              credits: <number>
+              usedCredits: <number>
+```
+
+### 3. Create Google Cloud Secrets
+
+```bash
+# Create Firebase credentials secret
+gcloud secrets create firebase-credentials \
+  --data-file="$FIREBASE_SA_PATH"
+
+# Create Deepgram API key secret
+gcloud secrets create deepgram-key \
+  --data-file=<(echo -n "$DEEPGRAM_API_KEY")
+
+# Get the Cloud Run service account email
+PROJECT_NUMBER=$(gcloud projects describe $(gcloud config get-value project) --format="value(projectNumber)")
+SERVICE_ACCOUNT="$PROJECT_NUMBER-compute@developer.gserviceaccount.com"
+
+# Grant access to secrets
+gcloud secrets add-iam-policy-binding firebase-credentials \
+  --member="serviceAccount:$SERVICE_ACCOUNT" \
+  --role="roles/secretmanager.secretAccessor"
+
+gcloud secrets add-iam-policy-binding deepgram-key \
+  --member="serviceAccount:$SERVICE_ACCOUNT" \
+  --role="roles/secretmanager.secretAccessor"
+```
+
+### 4. Build and Deploy to Cloud Run
+
+```bash
+# Authenticate Docker to Google Container Registry
+gcloud auth configure-docker
+
+# Build Docker image
+docker build --platform linux/amd64 \
+  -t gcr.io/$PROJECT_ID/$SERVICE_NAME .
+
+# Push to Container Registry
+docker push gcr.io/$PROJECT_ID/$SERVICE_NAME
+
+# Deploy to Cloud Run
+gcloud run deploy $SERVICE_NAME \
+  --image gcr.io/$PROJECT_ID/$SERVICE_NAME \
+  --platform managed \
+  --region $REGION \
+  --allow-unauthenticated \
+  --session-affinity \
+  --memory $MEMORY \
+  --set-secrets=FIREBASE_CREDENTIALS=firebase-credentials:latest,DEEPGRAM_API_KEY=deepgram-key:latest
+```
+
+### Cloud Run Resource Usage and Free Tier
+
+The service is optimized to use 256Mi memory instead of 512Mi to maximize free tier usage:
+
+- Free tier monthly limits:
+  - 2 million requests
+  - 360,000 vCPU-seconds
+  - 780,000 GB-seconds
+  - 100,000 container instance hours
+
+For WebSocket connections with 256Mi container:
+- 1-minute connections: ~6,000 free/month
+- 5-minute connections: ~1,200 free/month
+- 10-minute connections: ~600 free/month
+- 15-minute connections: ~400 free/month
+
+After free tier, costs per 10-minute connection: ~$0.001
 
 ## Testing
 
-1. Local Testing:
-   - Start the development servers: `npm run dev`
-   - Open http://localhost:8000
-   - Use the "Test Connection" button to verify WebSocket connectivity
-   - Start recording to test audio transcription
+### Local Testing (Debug Mode)
+1. Enable debug mode in `.env`
+2. Start servers: `npm run dev`
+3. Open http://localhost:8000
+4. Use test client interface:
+   - Select "Local Server"
+   - Click "Test Connection"
+   - Start recording to test transcription
 
-2. Cloud Run Testing:
-   - Deploy using the instructions above
-   - Connect to the Cloud Run endpoint
-   - Verify WebSocket connection
+### Production Testing
+1. Deploy to Cloud Run
+2. Configure test client:
+   - Select "Cloud Run Server"
+   - Enter service URL
+   - Connect with valid Firebase token
    - Test audio transcription
 
-3. Authentication Testing:
-   - Verify token generation in client
-   - Check token validation logs in server
-   - Test with invalid/expired tokens
-   - Test with no token
-
-## Configuration
-
-The application can be configured through:
-- Environment variables (`.env` file)
-- `config/default.json` for server settings
-- Client-side connection settings in the web interface
-- Firebase configuration for authentication
-
-## Security Notes
-
-- All requests require valid Firebase authentication token
-- Tokens expire after 1 hour and need refresh
-- WebSocket connections maintain validity until disconnected
-- Deepgram API key is secured in Cloud Run secrets
-
-## Limitations
-
-- Audio must be in LINEAR16 format (16-bit PCM)
-- WebSocket connections require session affinity in Cloud Run
-- Browser must support WebSocket and Audio APIs
-- Tokens must be refreshed periodically
+### Multi-Device Testing
+1. Connect multiple devices using same user token
+2. Verify independent session handling
+3. Monitor credit usage across devices
+4. Test concurrent transcription
 
 ## Troubleshooting
 
-1. Connection Issues:
-   - Verify the WebSocket URL is correct
-   - Check browser console for errors
-   - Ensure Cloud Run service is deployed correctly
-   - Verify token is valid and not expired
+### Common Issues
 
-2. Audio Issues:
-   - Grant microphone permissions in browser
-   - Check audio input device
-   - Verify audio format settings
+1. Connection Failures
+   - Verify WebSocket URL format
+   - Check authentication token
+   - Confirm session affinity enabled
+   - Verify service is running
 
-3. Authentication Issues:
+2. Authentication Issues
    - Check Firebase configuration
    - Verify token generation
-   - Check server logs for auth errors
-   - Try index_old.js to isolate auth problems
+   - Check token expiration
+   - Monitor server logs
+
+3. Credit System Issues
+   - Verify Firestore structure
+   - Check credit allocation
+   - Monitor credit updates
+   - Check transaction logs
+
+### Debug Mode
+Enable debug mode for troubleshooting:
+```bash
+# Local
+DEBUG_MODE=true npm run server
+
+# Cloud Run
+gcloud run services update deepgram-proxy \
+  --set-env-vars=DEBUG_MODE=true
+```
+
+## Security Notes
+
+1. Authentication
+   - Use HTTPS/WSS for all connections
+   - Regularly rotate service accounts
+   - Monitor authentication failures
+
+2. Credit System
+   - Use transactions for updates
+   - Monitor usage patterns
+   - Set up alerts for anomalies
+
+3. Deployment
+   - Use secret management
+   - Enable audit logging
+   - Configure appropriate IAM roles
 
 ## License
 
 ISC License
-```
