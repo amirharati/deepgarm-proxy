@@ -208,7 +208,10 @@ gcloud run deploy $SERVICE_NAME \
   --session-affinity \
   --memory $MEMORY \
   --set-secrets=FIREBASE_CREDENTIALS=firebase-credentials:latest,DEEPGRAM_API_KEY=deepgram-key:latest
+
+gcloud run services update deepgram-proxy --timeout=3600
 ```
+The last command is to set the timeout to 3600. Currently when running on cloud run this is maximum connection time. The client has to reconnect for longer connections.
 
 ### Cloud Run Resource Usage and Free Tier
 
