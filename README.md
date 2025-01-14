@@ -303,6 +303,134 @@ gcloud run services update deepgram-proxy \
    - Enable audit logging
    - Configure appropriate IAM roles
 
+
+```markdown
+## Domain and Cloudflare Setup
+
+### Prerequisites
+- A registered domain configured with Cloudflare
+- Cloud Run service already deployed
+- gcloud CLI installed and configured
+
+### Resources
+- [Cloud Run Custom Domain Mapping Documentation](https://cloud.google.com/run/docs/mapping-custom-domains)
+- [Cloudflare SSL/TLS Settings](https://developers.cloudflare.com/ssl/get-started)
+- [Cloudflare WebSocket Documentation](https://developers.cloudflare.com/fundamentals/websockets)
+
+### 1. Domain Verification and Mapping
+First, verify domain ownership with Google Cloud:
+```bash
+# Verify domain ownership
+gcloud domains verify your-subdomain.yourdomain.com
+
+# Create domain mapping
+gcloud beta run domain-mappings create \
+  --service=$SERVICE_NAME \
+  --region=$REGION \
+  --domain=your-subdomain.yourdomain.com
+
+# Check mapping status and get DNS instructions
+gcloud beta run domain-mappings describe \
+  --region=$REGION \
+  --domain=your-subdomain.yourdomain.com
+```
+
+The mapping status will show:
+```
+resourceRecords:
+  - name: your-subdomain
+    rrdata: ghs.googlehosted.com
+    type: CNAME
+```
+
+Wait for the mapping status to show certificate provisioning message.
+
+### 2. DNS Configuration in Cloudflare
+Configure DNS settings in Cloudflare dashboard:
+
+1. Add DNS record:
+   - Type: CNAME
+   - Name: your-subdomain
+   - Target: ghs.googlehosted.com
+   - Proxy status: Initially OFF (gray cloud)
+   - TTL: Auto
+
+2. Wait for Google's SSL certificate provisioning
+3. After verification completes, enable proxy (orange cloud)
+
+### 3. Cloudflare Required Settings
+
+#### SSL/TLS Settings
+1. Navigate to SSL/TLS section
+2. Set SSL mode to "Full"
+3. Configure Edge Certificates:
+   - Minimum TLS Version: 1.2 or 1.3
+   - Enable Always Use HTTPS
+   - Enable HTTP Strict Transport Security (HSTS)
+   - Enable Include subdomains for HSTS
+
+#### WebSocket Settings
+1. Navigate to Network section
+2. Enable WebSocket setting
+
+### 4. Verify Setup
+Test your domain setup:
+
+1. HTTP/HTTPS access:
+```bash
+# Test HTTP endpoint
+curl https://your-subdomain.yourdomain.com/health
+
+# Expected response:
+# {"status":"OK","timestamp":"..."}
+```
+
+2. WebSocket connection:
+- Update client WebSocket URL to:
+```
+wss://your-subdomain.yourdomain.com
+```
+
+### Security Configuration
+1. SSL/TLS encryption is end-to-end:
+   - Client → Cloudflare (Full SSL)
+   - Cloudflare → Cloud Run (Google managed SSL)
+
+2. DDoS protection:
+   - Provided by Cloudflare free tier
+   - Additional protection from Google Cloud
+
+3. Authentication flow:
+   - Firebase Authentication tokens still required
+   - Credit system remains active
+   - Request validation unchanged
+
+### Troubleshooting
+
+1. Certificate Issues:
+   - Verify domain mapping status in Cloud Run
+   - Check SSL/TLS mode in Cloudflare
+   - Ensure DNS propagation is complete
+
+2. Connection Issues:
+   - Verify WebSocket setting is enabled
+   - Check SSL/TLS mode is set to Full
+   - Confirm proxy status is enabled (orange cloud)
+
+3. Common Error Messages:
+   - "SSL handshake failed": Check SSL/TLS settings
+   - "Domain not verified": Wait for DNS propagation
+   - "Certificate pending": Wait for Google's certificate provisioning
+
+### Notes
+- Free tier Cloudflare is sufficient for WebSocket proxy
+- Cloudflare proxy provides additional security layer
+- Domain verification process may take up to 24 hours
+- SSL certificate provisioning may take up to 15 minutes
+- Changes to DNS settings may take time to propagate
+```
+
+Would you like me to add or modify any section of this documentation?
 ## License
 
 ISC License
