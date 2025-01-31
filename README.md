@@ -1,6 +1,6 @@
 # Deepgram WebSocket Proxy
 
-A WebSocket proxy server that enables real-time speech-to-text transcription using [Deepgram's API[(https://deepgram.com/). This solution combines a production-grade server with Firebase authentication and credit management, alongside a testing client interface for audio recording and transcription. I have implemented this proxy in several projects, including [AI Study Buddy](https://www.idealabs.ai/products/ai-study-buddy).
+A WebSocket proxy server that enables real-time speech-to-text transcription using [Deepgram's API](https://deepgram.com/). This solution combines a production-grade server with Firebase authentication and credit management, alongside a testing client interface for audio recording and transcription. I have implemented this proxy in several projects, including [AI Study Buddy](https://www.idealabs.ai/products/ai-study-buddy).
 
 
 **Note**: This documentation and codebase were developed with AI/LLM assistance. 
