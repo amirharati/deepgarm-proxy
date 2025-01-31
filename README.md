@@ -1,6 +1,9 @@
 # Deepgram WebSocket Proxy
 
-A WebSocket proxy server that enables real-time speech-to-text transcription using Deepgram's API. This application includes a production-ready server component with Firebase authentication and credit management, plus a testing client interface for audio recording and transcription.
+A WebSocket proxy server that enables real-time speech-to-text transcription using [Deepgram's API[(https://deepgram.com/). This solution combines a production-grade server with Firebase authentication and credit management, alongside a testing client interface for audio recording and transcription. I have implemented this proxy in several projects, including [AI Study Buddy](https://www.idealabs.ai/products/ai-study-buddy).
+
+
+**Note**: This documentation and codebase were developed with AI/LLM assistance. 
 
 ## Features
 
@@ -307,7 +310,7 @@ gcloud run services update deepgram-proxy \
    - Configure appropriate IAM roles
 
 
-```markdown
+
 ## Domain and Cloudflare Setup
 
 ### Prerequisites
@@ -431,9 +434,9 @@ wss://your-subdomain.yourdomain.com
 - Domain verification process may take up to 24 hours
 - SSL certificate provisioning may take up to 15 minutes
 - Changes to DNS settings may take time to propagate
-```
 
-Would you like me to add or modify any section of this documentation?
+
+
 ## License
 
 ISC License
