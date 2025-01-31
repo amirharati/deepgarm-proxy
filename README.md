@@ -437,6 +437,3 @@ wss://your-subdomain.yourdomain.com
 
 
 
-## License
-
-ISC License
