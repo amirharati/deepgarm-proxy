@@ -9,7 +9,7 @@ A WebSocket proxy server that enables real-time speech-to-text transcription usi
 
 - Real-time audio transcription using Deepgram's API
 - Firebase Authentication integration
-- Sophisticated credit tracking system
+- Credit tracking system per user
 - Multi-device support with independent session tracking
 - Browser-based test client
 - Debug mode for development
