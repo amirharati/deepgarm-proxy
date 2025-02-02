@@ -216,24 +216,6 @@ gcloud run services update deepgram-proxy --timeout=3600
 ```
 The last command is to set the timeout to 3600. Currently when running on cloud run this is maximum connection time. The client has to reconnect for longer connections.
 
-### Cloud Run Resource Usage and Free Tier
-
-The service is optimized to use 256Mi memory instead of 512Mi to maximize free tier usage:
-
-- Free tier monthly limits:
-  - 2 million requests
-  - 360,000 vCPU-seconds
-  - 780,000 GB-seconds
-  - 100,000 container instance hours
-
-For WebSocket connections with 256Mi container:
-- 1-minute connections: ~6,000 free/month
-- 5-minute connections: ~1,200 free/month
-- 10-minute connections: ~600 free/month
-- 15-minute connections: ~400 free/month
-
-After free tier, costs per 10-minute connection: ~$0.001
-
 ## Testing
 
 ### Local Testing (Debug Mode)
@@ -431,8 +413,6 @@ wss://your-subdomain.yourdomain.com
 ### Notes
 - Free tier Cloudflare is sufficient for WebSocket proxy
 - Cloudflare proxy provides additional security layer
-- Domain verification process may take up to 24 hours
-- SSL certificate provisioning may take up to 15 minutes
 - Changes to DNS settings may take time to propagate
 
 
